@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mlb-pitches"
+version = "0.1.0"
+description = "Unsupervised pitch-archetype clustering and pitcher analytics from MLB Statcast data"
+readme = "README.md"
+license = "MIT"
+authors = [
+    { name = "Nick Cifelli", email = "nickcifelli13@gmail.com" },
+]
+requires-python = ">=3.11"
+dependencies = [
+    "numpy",
+    "pandas",
+    "scikit-learn",
+    "joblib",
+    "pybaseball",
+    "pyarrow",
+    "matplotlib",
+    "scipy",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["pitch_clusters*"]

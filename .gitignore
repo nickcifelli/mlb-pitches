@@ -1,0 +1,31 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+dist/
+build/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.DS_Store
+.env
+.env.*
+
+# editor/tool state
+.claude/
+.idea/
+.vscode/
+
+# data — large files not committed
+data/raw/
+data/processed/
+data/models/pitch_clusters/*.joblib
+
+# derived caches — regenerate with `python -m pitch_clusters.pitcher_cluster_stats`
+data/derived/
+
+# generated charts — regenerate with `python -m pitch_clusters.visualizations`
+plots/
+
+# private notes, not for the public repo
+ideas.md
