@@ -51,6 +51,7 @@ pipeline yourself to regenerate it.
 | 6 | `python -m pitch_clusters.arsenal_fingerprints --comps "name" --drift "name"` | Pitcher archetypes, comps, and arsenal-mix drift over time |
 | 7 | `python -m pitch_clusters.batter_cluster_stats` | Aggregates per-batter, per-cluster pitch/outcome counts to `data/derived/` |
 | 8 | `python -m pitch_clusters.batter_shrinkage --batter "name"` | Empirical-Bayes shrinkage of batter performance rates per cluster; optional single-batter report |
+| 9 | `python -m pitch_clusters.matchup --pitcher "name" --batter "name"` | Pitcher-vs-batter matchup: usage-weighted expected performance |
 
 Step 1 is network-bound (rate-limited fetches from Baseball Savant) and is
 the slow step; everything after it runs against cached local data and is
@@ -65,6 +66,12 @@ pitcher_hand, year, cluster)` instead, with a batter-relevant metric set
 (chase rate, zone-contact rate, hard-hit%, barrel%, wOBA/xwOBA against, plus
 whiff/CSW/zone/GB/EV-against shared with the pitcher side) shrunk the same
 empirical-Bayes way.
+
+Step 9 combines the two sides: a pitcher-season's cluster usage mix (from
+step 6) weighted against a batter's shrunk per-cluster rates (from step 8)
+gives an expected performance line for that specific matchup, compared
+against what an average batter would be expected to do against the same
+arsenal. No new statistics — just usage% x per-cluster rate, summed.
 
 `pitch_clusters.assign` isn't run directly it's the runtime API
 (`get_assigner()`) other modules and any downstream consumer use to load the
