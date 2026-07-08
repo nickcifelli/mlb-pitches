@@ -60,7 +60,10 @@ _ZONE_NUMS = list(range(1, 10))
 def load_pitch_data(years: list[int]) -> pd.DataFrame:
     """Load raw pitch-level Statcast data for the given years.
 
-    Prefers parquet (faster); falls back to CSV if parquet is absent.
+    Prefers parquet (faster); falls back to CSV if parquet is absent. This is
+    the from-scratch entrypoint (used only by this module, before anything
+    else has run), so unlike load_processed_years below it also handles the
+    CSV fallback.
     """
     cols_needed = [
         "pitcher", "p_throws", "pitch_type",
@@ -93,6 +96,30 @@ def load_pitch_data(years: list[int]) -> pd.DataFrame:
     if not dfs:
         raise RuntimeError(f"No pitch data found in {PROCESSED_DIR} for years {years}")
     return pd.concat(dfs, ignore_index=True)
+
+
+def load_processed_years(years: list[int], columns: list[str]) -> pd.DataFrame:
+    """Load cached processed-season parquet files, restricted to whichever of
+    `columns` are present in each file's schema.
+
+    Shared by every downstream module (pitcher_cluster_stats, batter_cluster_stats,
+    ...) that needs a full, unsampled pass over the pitch data with its own
+    column subset — the "read schema first, don't silently drop rows" trick
+    used to live duplicated in each of those modules.
+    """
+    frames = []
+    for y in years:
+        path = PROCESSED_DIR / f"statcast_pitches_{y}.parquet"
+        if not path.exists():
+            print(f"  [WARN] no processed data for {y}, skipping")
+            continue
+        available = pq.ParquetFile(path).schema.names
+        df = pd.read_parquet(path, columns=[c for c in columns if c in available])
+        print(f"  Loaded {path.name}: {len(df):,} pitches", flush=True)
+        frames.append(df)
+    if not frames:
+        raise RuntimeError(f"No processed data found for years {years}")
+    return pd.concat(frames, ignore_index=True)
 
 
 def _default_avgs() -> dict[str, float]:

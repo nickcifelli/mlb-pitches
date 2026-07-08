@@ -17,15 +17,14 @@ import argparse
 
 import numpy as np
 import pandas as pd
-import pyarrow.parquet as pq
 
 from pitch_clusters.assign import get_assigner
 from pitch_clusters.fit import (
     CLUSTER_FEATURES,
-    PROCESSED_DIR,
     _SWING_DESCRIPTIONS,
     _WHIFF_DESCRIPTIONS,
     _ZONE_NUMS,
+    load_processed_years,
 )
 from pitch_clusters.fit import OUTPUT_DIR as MODEL_DIR
 from pitch_clusters.fit import _REPO_ROOT
@@ -43,23 +42,10 @@ _LOAD_COLUMNS = [
 def load_full_pitch_data(years: list[int]) -> pd.DataFrame:
     """Load full (unsampled) pitch-level data for the given years.
 
-    Same "read only the columns present" trick as fit.load_pitch_data /
-    visualizations.load_pitch_sample, but no per-year subsampling — accurate
+    No per-year subsampling (unlike visualizations.load_pitch_sample) — accurate
     per-pitcher counts need every row.
     """
-    frames = []
-    for y in years:
-        path = PROCESSED_DIR / f"statcast_pitches_{y}.parquet"
-        if not path.exists():
-            print(f"  [WARN] no processed data for {y}, skipping")
-            continue
-        available = pq.ParquetFile(path).schema.names
-        df = pd.read_parquet(path, columns=[c for c in _LOAD_COLUMNS if c in available])
-        print(f"  Loaded {path.name}: {len(df):,} pitches", flush=True)
-        frames.append(df)
-    if not frames:
-        raise RuntimeError(f"No processed data found for years {years}")
-    return pd.concat(frames, ignore_index=True)
+    return load_processed_years(years, _LOAD_COLUMNS)
 
 
 def build_pitcher_cluster_counts(df: pd.DataFrame) -> pd.DataFrame:

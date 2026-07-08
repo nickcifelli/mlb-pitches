@@ -49,10 +49,22 @@ pipeline yourself to regenerate it.
 | 4 | `python -m pitch_clusters.pitcher_cluster_stats` | Aggregates per-pitcher, per-cluster pitch/outcome counts to `data/derived/` |
 | 5 | `python -m pitch_clusters.shrinkage --pitcher "name"` | Empirical-Bayes shrinkage of outcome rates; optional single-pitcher report |
 | 6 | `python -m pitch_clusters.arsenal_fingerprints --comps "name" --drift "name"` | Pitcher archetypes, comps, and arsenal-mix drift over time |
+| 7 | `python -m pitch_clusters.batter_cluster_stats` | Aggregates per-batter, per-cluster pitch/outcome counts to `data/derived/` |
+| 8 | `python -m pitch_clusters.batter_shrinkage --batter "name"` | Empirical-Bayes shrinkage of batter performance rates per cluster; optional single-batter report |
 
 Step 1 is network-bound (rate-limited fetches from Baseball Savant) and is
 the slow step; everything after it runs against cached local data and is
-fast, including on a full 4-season, ~3M-pitch dataset.
+fast, including on a full 4-season, ~3M-pitch dataset. Step 7 also makes a
+one-time network call per not-yet-seen batter id (via pybaseball's Chadwick
+register) to resolve batter names, caching them to
+`data/derived/batter_names.parquet` — cheap and only paid once.
+
+Steps 7-8 mirror 4-5 at the batter grain: same cluster archetypes (they're
+pitch-shape based, not pitcher-specific), aggregated by `(batter, stand,
+pitcher_hand, year, cluster)` instead, with a batter-relevant metric set
+(chase rate, zone-contact rate, hard-hit%, barrel%, wOBA/xwOBA against, plus
+whiff/CSW/zone/GB/EV-against shared with the pitcher side) shrunk the same
+empirical-Bayes way.
 
 `pitch_clusters.assign` isn't run directly it's the runtime API
 (`get_assigner()`) other modules and any downstream consumer use to load the

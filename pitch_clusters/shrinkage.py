@@ -47,7 +47,7 @@ _DEFAULT_K = {
     "avg_ev_against": 50.0,
 }
 _MIN_N_FOR_PRIOR = 20
-_MIN_PITCHERS_FOR_PRIOR = 8
+_MIN_UNITS_FOR_PRIOR = 8  # min qualifying pitcher- or batter-units to trust a fitted prior over the default K
 _K_FLOOR = 1.0
 _VAR_FLOOR = 1e-6
 
@@ -67,12 +67,22 @@ def shrink_metric(numerator: np.ndarray, n: np.ndarray, K: np.ndarray, mu: np.nd
     return (numerator + K * mu) / (n + K)
 
 
-def _rate_prior(cluster_counts: pd.DataFrame, num_col: str, denom_col: str, mu: float, metric: str, min_n: int) -> dict:
+def _rate_prior(
+    cluster_counts: pd.DataFrame, num_col: str, denom_col: str, mu: float, default_k: float, min_n: int
+) -> dict:
+    """Beta-Binomial method-of-moments prior for one (cluster, rate metric).
+
+    `default_k` is the fallback prior strength when there aren't enough
+    qualifying units to trust an estimated one — passed in rather than looked
+    up from a module-level dict so this is reusable across metric sets
+    (pitcher_cluster_stats's whiff/CSW/zone/GB and batter_cluster_stats's
+    wider metric set both call this with their own defaults).
+    """
     denom = cluster_counts[denom_col].to_numpy(dtype=np.float64)
     qualified = denom >= min_n
     n_qualified = int(qualified.sum())
-    if n_qualified < _MIN_PITCHERS_FOR_PRIOR:
-        return {"K": _DEFAULT_K[metric], "mu": mu, "n_qualified": n_qualified, "fallback": True}
+    if n_qualified < _MIN_UNITS_FOR_PRIOR:
+        return {"K": default_k, "mu": mu, "n_qualified": n_qualified, "fallback": True}
 
     n_q = denom[qualified]
     p = cluster_counts[num_col].to_numpy(dtype=np.float64)[qualified] / n_q
@@ -81,35 +91,44 @@ def _rate_prior(cluster_counts: pd.DataFrame, num_col: str, denom_col: str, mu: 
     sigma2_talent = sample_var - expected_noise
 
     if sigma2_talent <= _VAR_FLOOR:
-        return {"K": _DEFAULT_K[metric], "mu": mu, "n_qualified": n_qualified, "fallback": True}
+        return {"K": default_k, "mu": mu, "n_qualified": n_qualified, "fallback": True}
 
     K = mu * (1 - mu) / sigma2_talent - 1
     return {"K": max(K, _K_FLOOR), "mu": mu, "n_qualified": n_qualified, "fallback": False}
 
 
-def _ev_prior(cluster_counts: pd.DataFrame, mu: float, min_n: int) -> dict:
-    n_ev = cluster_counts["n_ev"].to_numpy(dtype=np.float64)
-    qualified = n_ev >= min_n
-    n_qualified = int(qualified.sum())
-    if n_qualified < _MIN_PITCHERS_FOR_PRIOR:
-        return {"K": _DEFAULT_K["avg_ev_against"], "mu": mu, "n_qualified": n_qualified, "fallback": True}
+def _normal_prior(
+    cluster_counts: pd.DataFrame, n_col: str, sum_col: str, sumsq_col: str,
+    mu: float, default_k: float, min_n: int,
+) -> dict:
+    """Normal-Normal (random-effects) method-of-moments prior for one (cluster,
+    continuous metric), e.g. avg_ev_against, or a batter-side metric like wOBA.
 
-    n_q = n_ev[qualified]
-    sum_ev_q = cluster_counts["sum_ev"].to_numpy(dtype=np.float64)[qualified]
-    sum_ev_sq_q = cluster_counts["sum_ev_sq"].to_numpy(dtype=np.float64)[qualified]
-    mean_ev = sum_ev_q / n_q
+    Column names are parameters (not hardcoded to n_ev/sum_ev/sum_ev_sq) so
+    this is reusable for any "count, sum, sum-of-squares" triple.
+    """
+    n = cluster_counts[n_col].to_numpy(dtype=np.float64)
+    qualified = n >= min_n
+    n_qualified = int(qualified.sum())
+    if n_qualified < _MIN_UNITS_FOR_PRIOR:
+        return {"K": default_k, "mu": mu, "n_qualified": n_qualified, "fallback": True}
+
+    n_q = n[qualified]
+    sum_q = cluster_counts[sum_col].to_numpy(dtype=np.float64)[qualified]
+    sumsq_q = cluster_counts[sumsq_col].to_numpy(dtype=np.float64)[qualified]
+    mean_q = sum_q / n_q
 
     within_dof = float(n_q.sum() - n_qualified)
     if within_dof <= 0:
-        return {"K": _DEFAULT_K["avg_ev_against"], "mu": mu, "n_qualified": n_qualified, "fallback": True}
-    sigma2_w = float((sum_ev_sq_q - n_q * mean_ev ** 2).sum() / within_dof)
+        return {"K": default_k, "mu": mu, "n_qualified": n_qualified, "fallback": True}
+    sigma2_w = float((sumsq_q - n_q * mean_q ** 2).sum() / within_dof)
 
-    sample_var = float(np.var(mean_ev, ddof=1))
+    sample_var = float(np.var(mean_q, ddof=1))
     expected_noise = float(np.mean(sigma2_w / n_q))
     tau2 = sample_var - expected_noise
 
     if tau2 <= _VAR_FLOOR or sigma2_w <= 0:
-        return {"K": _DEFAULT_K["avg_ev_against"], "mu": mu, "n_qualified": n_qualified, "fallback": True}
+        return {"K": default_k, "mu": mu, "n_qualified": n_qualified, "fallback": True}
 
     K = sigma2_w / tau2
     return {"K": max(K, _K_FLOOR), "mu": mu, "n_qualified": n_qualified, "fallback": False}
@@ -131,10 +150,13 @@ def fit_shrinkage_priors(counts: pd.DataFrame, hand: str, min_n: int = _MIN_N_FO
         cluster_counts = hand_counts[hand_counts["cluster"] == cluster]
         league_avgs = assigner.get_league_avgs(cluster, hand)
         metrics = {
-            metric: _rate_prior(cluster_counts, num_col, denom_col, league_avgs[metric], metric, min_n)
+            metric: _rate_prior(cluster_counts, num_col, denom_col, league_avgs[metric], _DEFAULT_K[metric], min_n)
             for metric, (num_col, denom_col) in RATE_METRICS.items()
         }
-        metrics["avg_ev_against"] = _ev_prior(cluster_counts, league_avgs["avg_ev_against"], min_n)
+        metrics["avg_ev_against"] = _normal_prior(
+            cluster_counts, "n_ev", "sum_ev", "sum_ev_sq",
+            league_avgs["avg_ev_against"], _DEFAULT_K["avg_ev_against"], min_n,
+        )
         priors[cluster] = metrics
     return priors
 
